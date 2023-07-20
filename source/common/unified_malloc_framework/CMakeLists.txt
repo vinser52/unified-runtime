@@ -5,7 +5,7 @@
 
 set(UMF_SOURCES
     src/memory_pool.c
-    src/memory_provider.c
+    src/memory_provider.cpp
     src/memory_tracker.cpp
     src/memory_provider_get_last_failed.cpp
 )

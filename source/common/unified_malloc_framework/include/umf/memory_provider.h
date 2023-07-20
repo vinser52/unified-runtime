@@ -37,6 +37,17 @@ umfMemoryProviderCreate(const struct umf_memory_provider_ops_t *ops,
 ///
 void umfMemoryProviderDestroy(umf_memory_provider_handle_t hProvider);
 
+// TODO comment
+enum umf_result_t
+umfMemoryProviderRegister(struct umf_memory_provider_ops_t *ops);
+
+enum umf_result_t
+umfMemoryProvidersRegistryGet(struct umf_memory_provider_ops_t *providers,
+                              size_t *numProviders);
+
+const struct umf_memory_provider_ops_t *
+umfMemoryProvidersRegistryGetOps(char *name);
+
 ///
 /// \brief Allocates size bytes of uninitialized storage from memory provider
 ///        with specified alignment.

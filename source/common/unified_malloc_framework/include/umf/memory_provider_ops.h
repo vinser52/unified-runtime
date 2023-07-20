@@ -11,6 +11,7 @@
 #ifndef UMF_MEMORY_PROVIDER_OPS_H
 #define UMF_MEMORY_PROVIDER_OPS_H 1
 
+#include <stdbool.h>
 #include <umf/base.h>
 
 #ifdef __cplusplus
@@ -50,6 +51,7 @@ struct umf_memory_provider_ops_t {
     enum umf_result_t (*purge_lazy)(void *provider, void *ptr, size_t size);
     enum umf_result_t (*purge_force)(void *provider, void *ptr, size_t size);
     const char *(*get_name)(void *provider);
+    bool (*supports_device)(const char *name);
 };
 
 #ifdef __cplusplus

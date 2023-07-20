@@ -8,22 +8,30 @@
  *
  */
 
-#include "memory_provider_internal.h"
-#include <umf/memory_provider.h>
-
 #include <assert.h>
 #include <stdlib.h>
+
+#include <algorithm>
+#include <cstring>
+#include <string>
+#include <vector>
+
+#include "umf/memory_provider.h"
+
+#include "memory_provider_internal.h"
 
 struct umf_memory_provider_t {
     struct umf_memory_provider_ops_t ops;
     void *provider_priv;
 };
 
+std::vector<struct umf_memory_provider_ops_t> globalProviders;
+
 enum umf_result_t
 umfMemoryProviderCreate(const struct umf_memory_provider_ops_t *ops,
                         void *params, umf_memory_provider_handle_t *hProvider) {
     umf_memory_provider_handle_t provider =
-        malloc(sizeof(struct umf_memory_provider_t));
+        (umf_memory_provider_t *)malloc(sizeof(struct umf_memory_provider_t));
     if (!provider) {
         return UMF_RESULT_ERROR_OUT_OF_HOST_MEMORY;
     }
@@ -44,6 +52,42 @@ umfMemoryProviderCreate(const struct umf_memory_provider_ops_t *ops,
     *hProvider = provider;
 
     return UMF_RESULT_SUCCESS;
+}
+
+enum umf_result_t umfMemoryProviderRegister(umf_memory_provider_ops_t *ops) {
+
+    // TODO check if this provider isn't already registered
+    globalProviders.push_back(*ops);
+
+    return UMF_RESULT_SUCCESS;
+}
+
+enum umf_result_t
+umfMemoryProvidersRegistryGet(umf_memory_provider_ops_t *providers,
+                              size_t *numProviders) {
+
+    if (providers == NULL) {
+        *numProviders = globalProviders.size();
+    } else {
+        memcpy(providers, globalProviders.data(),
+               sizeof(umf_memory_provider_ops_t) * *numProviders);
+    }
+
+    return UMF_RESULT_SUCCESS;
+}
+
+// TODO rename ;)
+const umf_memory_provider_ops_t *umfMemoryProvidersRegistryGetOps(char *name) {
+    auto it = std::find_if(
+        std::begin(globalProviders), std::end(globalProviders),
+        [&](auto &ops) { return std::strcmp(ops.get_name(NULL), name) == 0; });
+
+    if (it != globalProviders.end()) {
+        return &(*it);
+    }
+
+    // else
+    return NULL;
 }
 
 void umfMemoryProviderDestroy(umf_memory_provider_handle_t hProvider) {

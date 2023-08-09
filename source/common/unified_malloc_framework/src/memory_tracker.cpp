@@ -22,6 +22,10 @@
 #include <windows.h>
 #endif
 
+struct tracker_value_t {
+    size_t size;
+    void *pool;
+};
 // TODO: reimplement in C and optimize...
 struct umf_memory_tracker_t {
     enum umf_result_t add(void *pool, const void *ptr, size_t size) {
@@ -31,8 +35,8 @@ struct umf_memory_tracker_t {
             return UMF_RESULT_SUCCESS;
         }
 
-        auto ret =
-            map.try_emplace(reinterpret_cast<uintptr_t>(ptr), size, pool);
+        auto ret = map.try_emplace(reinterpret_cast<uintptr_t>(ptr),
+                                   tracker_value_t{size, pool});
         return ret.second ? UMF_RESULT_SUCCESS : UMF_RESULT_ERROR_UNKNOWN;
     }
 
@@ -47,31 +51,34 @@ struct umf_memory_tracker_t {
         return UMF_RESULT_SUCCESS;
     }
 
-    void *find(const void *ptr) {
+    bool find(const void *ptr, umf_alloc_info_t *pAllocInfo) {
         std::shared_lock<std::shared_mutex> lock(mtx);
 
         auto intptr = reinterpret_cast<uintptr_t>(ptr);
         auto it = map.upper_bound(intptr);
         if (it == map.begin()) {
-            return nullptr;
+            return false;
         }
 
         --it;
 
         auto address = it->first;
-        auto size = it->second.first;
-        auto pool = it->second.second;
+        auto size = it->second.size;
+        auto pool = it->second.pool;
 
         if (intptr >= address && intptr < address + size) {
-            return pool;
+            pAllocInfo->base = reinterpret_cast<void *>(address);
+            pAllocInfo->size = size;
+            pAllocInfo->pool = (umf_memory_pool_handle_t)pool;
+            return true;
         }
 
-        return nullptr;
+        return false;
     }
 
   private:
     std::shared_mutex mtx;
-    std::map<uintptr_t, std::pair<size_t, void *>> map;
+    std::map<uintptr_t, tracker_value_t> map;
 };
 
 static enum umf_result_t
@@ -114,7 +121,15 @@ umf_memory_tracker_handle_t umfMemoryTrackerGet(void) { return tracker; }
 
 void *umfMemoryTrackerGetPool(umf_memory_tracker_handle_t hTracker,
                               const void *ptr) {
-    return hTracker->find(ptr);
+    struct umf_alloc_info_t allocInfo;
+    return hTracker->find(ptr, &allocInfo) ? allocInfo.pool : nullptr;
+}
+
+enum umf_result_t
+umfMemoryTrackerGetAllocInfo(umf_memory_tracker_handle_t hTracker,
+                             const void *ptr, umf_alloc_info_t *pAllocInfo) {
+    return hTracker->find(ptr, pAllocInfo) ? UMF_RESULT_SUCCESS
+                                           : UMF_RESULT_ERROR_INVALID_ARGUMENT;
 }
 
 struct umf_tracking_memory_provider_t {
@@ -233,6 +248,39 @@ static const char *trackingName(void *provider) {
     return umfMemoryProviderGetName(p->hUpstream);
 }
 
+static enum umf_result_t trackingGetIpcHandleSize(void *provider,
+                                                  size_t *size) {
+    umf_tracking_memory_provider_t *p =
+        (umf_tracking_memory_provider_t *)provider;
+    return umfMemoryProviderGetIPCHandleSize(p->hUpstream, size);
+}
+
+static enum umf_result_t trackingGetIpcHandle(void *provider, const void *ptr,
+                                              size_t size, void *ipcData) {
+    umf_tracking_memory_provider_t *p =
+        (umf_tracking_memory_provider_t *)provider;
+    return umfMemoryProviderGetIPCHandle(p->hUpstream, ptr, size, ipcData);
+}
+
+static enum umf_result_t trackingPutIpcHandle(void *provider, void *ipcData) {
+    umf_tracking_memory_provider_t *p =
+        (umf_tracking_memory_provider_t *)provider;
+    return umfMemoryProviderPutIPCHandle(p->hUpstream, ipcData);
+}
+
+static enum umf_result_t trackingOpenIpcHandle(void *provider, void *ipcData,
+                                               void **ptr) {
+    umf_tracking_memory_provider_t *p =
+        (umf_tracking_memory_provider_t *)provider;
+    return umfMemoryProviderOpenIPCHandle(p->hUpstream, ipcData, ptr);
+}
+
+static enum umf_result_t trackingCloseIpcHandle(void *provider, void *ptr) {
+    umf_tracking_memory_provider_t *p =
+        (umf_tracking_memory_provider_t *)provider;
+    return umfMemoryProviderCloseIPCHandle(p->hUpstream, ptr);
+}
+
 enum umf_result_t umfTrackingMemoryProviderCreate(
     umf_memory_provider_handle_t hUpstream, umf_memory_pool_handle_t hPool,
     umf_memory_provider_handle_t *hTrackingProvider) {
@@ -254,6 +302,11 @@ enum umf_result_t umfTrackingMemoryProviderCreate(
     trackingMemoryProviderOps.purge_force = trackingPurgeForce;
     trackingMemoryProviderOps.purge_lazy = trackingPurgeLazy;
     trackingMemoryProviderOps.get_name = trackingName;
+    trackingMemoryProviderOps.get_ipc_handle_size = trackingGetIpcHandleSize;
+    trackingMemoryProviderOps.get_ipc_handle = trackingGetIpcHandle;
+    trackingMemoryProviderOps.put_ipc_handle = trackingPutIpcHandle;
+    trackingMemoryProviderOps.open_ipc_handle = trackingOpenIpcHandle;
+    trackingMemoryProviderOps.close_ipc_handle = trackingCloseIpcHandle;
 
     return umfMemoryProviderCreate(&trackingMemoryProviderOps, &params,
                                    hTrackingProvider);

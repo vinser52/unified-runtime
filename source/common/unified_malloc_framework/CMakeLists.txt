@@ -8,6 +8,7 @@ set(UMF_SOURCES
     src/memory_provider.cpp
     src/memory_tracker.cpp
     src/memory_provider_get_last_failed.cpp
+    src/ipc.c
 )
 
 if(UMF_BUILD_SHARED_LIBRARY)

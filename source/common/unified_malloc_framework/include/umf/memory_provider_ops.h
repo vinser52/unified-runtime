@@ -52,6 +52,13 @@ struct umf_memory_provider_ops_t {
     enum umf_result_t (*purge_force)(void *provider, void *ptr, size_t size);
     const char *(*get_name)(void *provider);
     bool (*supports_device)(const char *name);
+    enum umf_result_t (*get_ipc_handle_size)(void *provider, size_t *size);
+    enum umf_result_t (*get_ipc_handle)(void *provider, const void *ptr,
+                                        size_t size, void *ipcData);
+    enum umf_result_t (*put_ipc_handle)(void *provider, void *ipcData);
+    enum umf_result_t (*open_ipc_handle)(void *provider, void *ipcData,
+                                         void **ptr);
+    enum umf_result_t (*close_ipc_handle)(void *provider, void *ptr);
 };
 
 #ifdef __cplusplus

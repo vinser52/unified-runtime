@@ -146,6 +146,55 @@ umfMemoryProviderPurgeForce(umf_memory_provider_handle_t hProvider, void *ptr,
                             size_t size);
 
 ///
+/// @brief return the size of ipc data structure created by the memory provider
+/// \param hProvider [in] handle to the memory provider
+/// \param size [out] size of the ipc data structure created by the memory provider
+/// \return UMF_RESULT_SUCCESS on success or appropriate error code on failure.
+enum umf_result_t
+umfMemoryProviderGetIPCHandleSize(umf_memory_provider_handle_t hProvider,
+                                  size_t *size);
+
+///
+/// @brief return IPC handle for the specified base address.
+/// \param hProvider [in] handle to the memory provider.
+/// \param ptr [in] beginning of the virtual memory range returned by
+///                 umfMemoryProviderAlloc function.
+/// \param size [in] size of the memory address range.
+/// \param ipcData [out] IPC handle data.
+/// \return UMF_RESULT_SUCCESS on success or appropriate error code on failure.
+enum umf_result_t
+umfMemoryProviderGetIPCHandle(umf_memory_provider_handle_t hProvider,
+                              const void *ptr, size_t size, void *ipcData);
+
+///
+/// @brief return IPC handle to the memory provider.
+/// \param hProvider [in] handle to the memory provider.
+/// \param ipcData [in] IPC handle data.
+/// \return UMF_RESULT_SUCCESS on success or appropriate error code on failure.
+enum umf_result_t
+umfMemoryProviderPutIPCHandle(umf_memory_provider_handle_t hProvider,
+                              void *ipcData);
+
+///
+/// @brief open IPC handle and return pointer in the current process.
+/// \param hProvider [in] handle to the memory provider.
+/// \param ipcData [in] IPC handle data.
+/// \param ptr [out] returned pointer.
+/// \return UMF_RESULT_SUCCESS on success or appropriate error code on failure.
+enum umf_result_t
+umfMemoryProviderOpenIPCHandle(umf_memory_provider_handle_t hProvider,
+                               void *ipcData, void **ptr);
+
+///
+/// @brief close IPC handle open with umfMemoryProviderOpenIPCHandle function.
+/// \param hProvider [in] handle to the memory provider.
+/// \param ptr [in] pointer returned by umfMemoryProviderOpenIPCHandle function.
+/// \return UMF_RESULT_SUCCESS on success or appropriate error code on failure.
+enum umf_result_t
+umfMemoryProviderCloseIPCHandle(umf_memory_provider_handle_t hProvider,
+                                void *ptr);
+
+///
 /// \brief Retrieve name of a given memory provider.
 /// \param hProvider handle to the memory provider
 /// \param ppName [out] pointer to a string containing name of the provider

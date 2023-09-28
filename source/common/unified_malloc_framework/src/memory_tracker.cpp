@@ -9,6 +9,7 @@
  */
 
 #include "memory_tracker.h"
+#include "critnib/critnib.h"
 #include <umf/memory_provider.h>
 #include <umf/memory_provider_ops.h>
 
@@ -17,6 +18,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -132,10 +134,16 @@ umfMemoryTrackerGetAllocInfo(umf_memory_tracker_handle_t hTracker,
                                            : UMF_RESULT_ERROR_INVALID_ARGUMENT;
 }
 
+struct ipc_cache_value_t {
+    uint64_t size;
+    char ipcData[];
+};
+
 struct umf_tracking_memory_provider_t {
     umf_memory_provider_handle_t hUpstream;
     umf_memory_tracker_handle_t hTracker;
     umf_memory_pool_handle_t pool;
+    critnib *ipcCache;
 };
 
 typedef struct umf_tracking_memory_provider_t umf_tracking_memory_provider_t;
@@ -179,6 +187,15 @@ static enum umf_result_t trackingFree(void *hProvider, void *ptr, size_t size) {
         return ret;
     }
 
+    void *value = critnib_remove(p->ipcCache, (uintptr_t)ptr);
+    if (value) {
+        struct ipc_cache_value_t *cache_value =
+            (struct ipc_cache_value_t *)value;
+        ret = umfMemoryProviderPutIPCHandle(p->hUpstream, cache_value->ipcData);
+        assert(ret == UMF_RESULT_SUCCESS);
+        free(value);
+    }
+
     ret = umfMemoryProviderFree(p->hUpstream, ptr, size);
     if (ret != UMF_RESULT_SUCCESS) {
         if (umfMemoryTrackerAdd(p->hTracker, p->pool, ptr, size) !=
@@ -204,7 +221,12 @@ static enum umf_result_t trackingInitialize(void *params, void **ret) {
     return UMF_RESULT_SUCCESS;
 }
 
-static void trackingFinalize(void *provider) { free(provider); }
+static void trackingFinalize(void *provider) {
+    umf_tracking_memory_provider_t *p =
+        (umf_tracking_memory_provider_t *)provider;
+    critnib_delete(p->ipcCache);
+    free(provider);
+}
 
 static void trackingGetLastError(void *provider, const char **msg,
                                  int32_t *pError) {
@@ -257,15 +279,44 @@ static enum umf_result_t trackingGetIpcHandleSize(void *provider,
 
 static enum umf_result_t trackingGetIpcHandle(void *provider, const void *ptr,
                                               size_t size, void *ipcData) {
+    enum umf_result_t ret = UMF_RESULT_SUCCESS;
+    size_t ipcDataSize = 0;
     umf_tracking_memory_provider_t *p =
         (umf_tracking_memory_provider_t *)provider;
-    return umfMemoryProviderGetIPCHandle(p->hUpstream, ptr, size, ipcData);
+
+    void *value = critnib_get(p->ipcCache, (uintptr_t)ptr);
+    if (value) { //cache hit
+        struct ipc_cache_value_t *cache_value =
+            (struct ipc_cache_value_t *)value;
+        memcpy(ipcData, cache_value->ipcData, cache_value->size);
+    } else { // cache miss
+        enum umf_result_t ret =
+            umfMemoryProviderGetIPCHandle(p->hUpstream, ptr, size, ipcData);
+        if (ret != UMF_RESULT_SUCCESS) {
+            return ret;
+        }
+
+        ret = umfMemoryProviderGetIPCHandleSize(p->hUpstream, &ipcDataSize);
+        assert(ret == UMF_RESULT_SUCCESS);
+
+        size_t value_size = sizeof(struct ipc_cache_value_t) + ipcDataSize;
+        struct ipc_cache_value_t *cache_value =
+            (struct ipc_cache_value_t *)malloc(value_size);
+
+        cache_value->size = ipcDataSize;
+        memcpy(cache_value->ipcData, ipcData, ipcDataSize);
+
+        int inserted = critnib_insert(p->ipcCache, (uintptr_t)ptr,
+                                      (void *)cache_value, 0 /*update*/);
+        assert(inserted != 0);
+    }
+    return ret;
 }
 
 static enum umf_result_t trackingPutIpcHandle(void *provider, void *ipcData) {
-    umf_tracking_memory_provider_t *p =
-        (umf_tracking_memory_provider_t *)provider;
-    return umfMemoryProviderPutIPCHandle(p->hUpstream, ipcData);
+    // We just keep ipcData in the provider->ipcCache.
+    // The actual Put is called inside trackingFree
+    return UMF_RESULT_SUCCESS;
 }
 
 static enum umf_result_t trackingOpenIpcHandle(void *provider, void *ipcData,
@@ -288,6 +339,7 @@ enum umf_result_t umfTrackingMemoryProviderCreate(
     params.hUpstream = hUpstream;
     params.hTracker = umfMemoryTrackerGet();
     params.pool = hPool;
+    params.ipcCache = critnib_new();
 
     struct umf_memory_provider_ops_t trackingMemoryProviderOps;
     trackingMemoryProviderOps.version = UMF_VERSION_CURRENT;
